@@ -19,6 +19,10 @@ The USE!UMBS.SYS provides interface to manage Upper Memory Blocks and make them 
 
 ## Changes
 
+* v2.1 - Initial version from Krister Nordvall
+  * Added support for specifying the address range for the UMB, e.g., `DEVICE=USE!UMBS.SYS D000-EFFF`
+  * Reduced memory usage
+
 * v2.0 - Original files from Marco van Zwetselaar
   * README is renamed to README.TXT
   * USE!UMBS.DOC is renamed to USE!UMBS.TXT
