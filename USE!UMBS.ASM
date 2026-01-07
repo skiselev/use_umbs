@@ -3,16 +3,20 @@
 ;
 ; This is a rewrite of Marco van Zwetselaar's USE!UMBS.SYS v2.0 from 1991.
 ;
-; Changes in this version (v2.1);
+; Changes in this version (v2.2);
+; * UMBs are now initialized to avoid parity errors.
+; * Minor size optimizations.
+;
+; Changes in the previous version (v2.1);
 ; * This file assembles in NASM.
 ; * Optimizations to reduce memory usage.
 ; * Command line parameters are now used in CONFIG.SYS to specify address ranges for UMBs.
 ;
 ;   Example for a single 128 KB UMB starting at segment D000h:
 ;
-;   DEVICE=USE!UMBS.SYS D000-EFFF
+;   DEVICE=USE!UMBS.SYS D000-F000
 ;
-; Please report bugs (bugs not in the previous version) to me at krille_n_@hotmail.com
+; Please report bugs to me at krille_n_@hotmail.com
 ;
 ; Thanks!
 ;
@@ -80,12 +84,9 @@
 		fpRequestHeader			dd		0
 
 Interrupt2FhHandler:
-		pushf
-
 		cmp		ah, 43h
 		je		SHORT RequestIsForMe
 
-		popf
 		db		0EAh					; Far jump opcode
 fpOldInterrupt2FhHandler:
 		dd		0						; Pointer filled in during initialization
@@ -97,11 +98,10 @@ RequestIsForMe:
 		mov		bx, UMBController
 		push	cs
 		pop		es
-		SKIP2B	f
+		iret
+
 ReturnHandlerExists:
 		mov		al, 80h
-
-		popf
 		iret
 
 
@@ -112,7 +112,6 @@ StrategyRoutine:
 
 
 InterruptRoutine:
-		pushf
 		push	es
 		push	bx
 		push	ax
@@ -136,7 +135,6 @@ Return:
 		pop		ax
 		pop		bx
 		pop		es
-		popf
 		retf
 
 
@@ -148,18 +146,15 @@ UMBController:
 		nop
 
 .CheckIfUMBorXMSrequest:
-		pushf
-
 		cmp		ah, 10h
 		je		SHORT UMBrequest
 
 JMPtoOurXMShandler:
-		jmp		SHORT XMSrequest		; This jump is NOPped out during init if an existing XMS handler is detected
-
-		popf
-		db		0EAh					; Far jump opcode
-fpOldXMShandler:
-		dd		0						; Pointer filled in during init
+		jmp		SHORT XMSrequest		; This jump is patched out during init if an existing XMS handler is detected
+fpOldXMShandler	equ	JMPtoOurXMShandler+1
+		db		0
+		db		0
+		db		0
 
 UMBrequest:
 		push	si
@@ -207,7 +202,6 @@ UMBrequest:
 .Return:
 		pop		cx
 		pop		si
-		popf
 		retf
 
 
@@ -229,7 +223,6 @@ XMSrequest:
 
 .Return:
 		xor		ax, ax					; Always return failure
-		popf
 		retf
 
 
@@ -265,7 +258,7 @@ Install:
 		jne		SHORT .OKtoInstall		; No, it's OK to install (with our handler)
 
 		; Yes, patch out the short unconditional jump to our XMS handler
-		mov		WORD [JMPtoOurXMShandler], 0C089h	; 'mov ax, ax'
+		mov		BYTE [JMPtoOurXMShandler], 0EAh		; 'jmp far ...'
 
 		; Then get the address to the old handler and store it
 		mov		ax, 4310h
@@ -285,7 +278,8 @@ Install:
 
 		; Check if it services UMBs by trying to allocate far too much
 		mov		ah, 10h
-		mov		dx, 0FFFFh
+		cwd
+		dec		dx
 		call	FAR [fpOldXMShandler]
 
 		; Assume we are not needed
@@ -392,6 +386,38 @@ Install:
 		inc		bx
 		mov		[.wOffsetBreakpoint], bx
 
+		; We need to initialize the UMBs by writing to every address to avoid parity errors later when reading
+		mov		si, [UMBrequest.wOffsetFreeUMBs]
+		push	di
+
+.InitNextBlock:
+		lodsw							; Segment address of UMB to AX
+		test	ax, ax
+		jz		SHORT .AllBlocksInitialized
+		xchg	bx, ax					; Save address in BX
+		lodsw							; Block size in paragraphs to AX
+		xor		dx, dx
+		xchg	dx, ax					; DX = Paragraph count, AX = Zero
+		xor		di, di					; Point ES:DI to start of UMB
+.InitNextSegment:
+		mov		es, bx
+		cmp		dh, 10h					; Block larger than or equal to a full segment?
+		jb		SHORT .LessThan64KB
+		mov		cx, 8000h				; We need to write (at least) a full 64 KB segment
+		add		bh, 10h					; Add 64 KB to the segment address for the next iteration (if any)
+		sub		dh, 10h					; Subtract 64 KB from the paragraph count
+		rep		stosw
+		jmp		SHORT .InitNextSegment
+.LessThan64KB:
+		mov		cl, 3
+		shl		dx, cl					; Paragraphs to WORDs
+		mov		cx, dx					; WORD count to CX
+		rep		stosw
+		jmp		SHORT .InitNextBlock
+
+.AllBlocksInitialized:
+		pop		di
+
 		; Get handler for Interrupt 2Fh and store it
 		mov		ax, 352Fh
 		int		21h
@@ -433,7 +459,7 @@ s$Hello3		db			'³   Works on any PC/XT/AT, either with or   ³',0Dh,0Ah
 s$XMMfound		db			'³     * found extended memory manager *     ³',0Dh,0Ah,'$'
 s$Author		db			'³        Author: Marco van Zwetselaar       ³',0Dh,0Ah
 				db			'³   dedicated it to the Public Domain 1991  ³',0Dh,0Ah,'$'
-s$Installed		db			'ÔÍÍµ Version 2.1 ÆÍÍÍÍÍÍÍÍÍÍµ Installed! ÆÍÍ¾',0Dh,0Ah,0Ah,'$'
+s$Installed		db			'ÔÍÍµ Version 2.2 ÆÍÍÍÍÍÍÍÍÍÍµ Installed! ÆÍÍ¾',0Dh,0Ah,0Ah,'$'
 s$NotInstalled	db			'ÔÍµ Not Installed!  UMBs Managed Already! ÆÍ¾',0Dh,0Ah,0Ah,'$'
 s$ParamError	db			'ÔÍµ Not Installed!  Invalid Command Line! ÆÍ¾',0Dh,0Ah,0Ah,'$'
 

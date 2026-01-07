@@ -19,6 +19,11 @@ The USE!UMBS.SYS provides interface to manage Upper Memory Blocks and make them 
 
 ## Changes
 
+* v2.2
+  * UMBs are now initialized to avoid parity errors.
+  * Minor size optimizations.
+
+
 * v2.1 - Initial version from Krister Nordvall
   * Added support for specifying the address range for the UMB, e.g., `DEVICE=USE!UMBS.SYS D000-EFFF`
   * Reduced memory usage
