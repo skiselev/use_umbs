@@ -15,7 +15,34 @@ The USE!UMBS.SYS provides interface to manage Upper Memory Blocks and make them 
 ## Usage information
 
 * [Original README file](README.TXT)
-* [Original Documentation](USE!UMBS.TXT) 
+* [Original Documentation](USE!UMBS.TXT)
+
+### Sample Configuration Files
+
+Below is an example of a **CONFIG.SYS** file that loads USE!UMBS.SYS and load the DOS into UMBs.
+Note that the address range argument specified after **USE!UMBS.SYS** should match the UMBs address range available on your system (D000-EFFF in this example).
+In addition to USE!UMBS, it also uses [DOSMAX.EXE (or DOSM86.EXE)](dosmax17.zip) that moves most of the DOS code into UMBs.
+Use **DEVICEHIGH** directive to load device drivers into UMBs:
+
+```
+FILES=30
+BUFFERS=20
+DOS=UMB
+DEVICE=C:\USE!UMBS.SYS D000-EFFF
+DEVICE=C:\DOSMAX.EXE /R+ /N+ /P-
+DEVICEHIGH=C:\DOS\SETVER.EXE
+```
+
+Below is an example of an **AUTOEXEC.BAT** file.
+Use **LH** directive to load drivers and other TSRs into UMBs:
+
+```
+@ECHO OFF
+SET PATH=C:\DOS
+SET TEMP=C:\DOS
+LH C:\DOS\MOUSE.COM
+LH C:\DOS\DOSKEY.COM
+```
 
 ## Changes
 
