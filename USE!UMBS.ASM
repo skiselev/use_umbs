@@ -3,11 +3,17 @@
 ;
 ; This is a rewrite of Marco van Zwetselaar's USE!UMBS.SYS v2.0 from 1991.
 ;
-; Changes in this version (v2.2);
+; Changes in this version (v2.3);
+; * Segment addresses given as parameters are now verified to be in the UMA.
+; * UMBs are now verified to be writable (ROM/bad RAM/no RAM will generate an error).
+; * Added support for the XTMax (based on work by Matthieu Bucchianeri).
+; * Minor size optimizations.
+;
+; Changes in the previous version (v2.2);
 ; * UMBs are now initialized to avoid parity errors.
 ; * Minor size optimizations.
 ;
-; Changes in the previous version (v2.1);
+; Changes in the version before that (v2.1);
 ; * This file assembles in NASM.
 ; * Optimizations to reduce memory usage.
 ; * Command line parameters are now used in CONFIG.SYS to specify address ranges for UMBs.
@@ -23,6 +29,47 @@
 ; Krister Nordvall
 ;
 
+; This define enables support for the XTMax.
+;%define XTMAX
+
+
+;--------------------------------------------------------------------
+; Skips the immediately following 1 byte instruction by using it
+; as an immediate value to a dummy instruction.
+; Destroys the contents of %1.
+;
+; SKIP1B
+;	Parameters:
+;		%1:		Any 8 bit general purpose register or F for flags.
+;	Returns:
+;		Nothing
+;	Corrupts registers:
+;		%1
+;--------------------------------------------------------------------
+%macro SKIP1B 1.nolist
+	%ifidni		%1, f
+		db	03Ch					; Opcode byte for CMP AL, <immed>
+		;db	0A8h					; Alt. version TEST AL, <immed>
+	%elifidni	%1, al
+		db	0B0h					; Opcode byte for MOV AL, <immed>
+	%elifidni	%1, ah
+		db	0B4h					; Opcode byte for MOV AH, <immed>
+	%elifidni	%1, bl
+		db	0B3h					; Opcode byte for MOV BL, <immed>
+	%elifidni	%1, bh
+		db	0B7h					; Opcode byte for MOV BH, <immed>
+	%elifidni	%1, cl
+		db	0B1h					; Opcode byte for MOV CL, <immed>
+	%elifidni	%1, ch
+		db	0B5h					; Opcode byte for MOV CH, <immed>
+	%elifidni	%1, dl
+		db	0B2h					; Opcode byte for MOV DL, <immed>
+	%elifidni	%1, dh
+		db	0B6h					; Opcode byte for MOV DH, <immed>
+	%else
+		%error "Invalid parameter passed to SKIP1B"
+	%endif
+%endmacro
 
 ;--------------------------------------------------------------------
 ; Skips the immediately following 2 byte instruction by using it
@@ -37,7 +84,7 @@
 ;	Corrupts registers:
 ;		%1
 ;--------------------------------------------------------------------
-%macro SKIP2B 1
+%macro SKIP2B 1.nolist
 	%ifidni		%1, f
 		db	03Dh					; Opcode byte for CMP AX, <immed>
 		;db	0A9h					; Alt. version TEST AX, <immed>
@@ -62,7 +109,9 @@
 	%endif
 %endmacro
 
+		NULL					equ		0
 		TAB						equ		9
+		LF						equ		10
 		CR						equ		13
 		SPACE					equ		32
 
@@ -117,19 +166,13 @@ InterruptRoutine:
 		push	ax
 
 		les		bx, [cs:fpRequestHeader]
-		mov		al, [es:bx+bRH_Command]
-		test	al, al
-		jz		SHORT Install
-
-		cmp		al, 10h
+		cmp		BYTE [es:bx+bRH_Command], 16
 		jbe		SHORT .NotImplemented
-		mov		ax, 8003h				; "Unknown command"
+		mov		ax, 8103h				; "Error: Unknown command" + "Done"
 		SKIP2B	f
 .NotImplemented:
-		xor		ax, ax
-
 Return:
-		or		ax, 100h				; Set Done bit
+		jmp		SHORT Install			; <-- Will be patched into 'mov ah, 1' - Set Done bit
 		mov		[es:bx+wRH_Status], ax
 
 		pop		ax
@@ -234,6 +277,7 @@ Install:
 
 		push	cs
 		pop		ds
+		mov		WORD [Return], 01B4h	; 'mov ah, 1'
 
 		mov		ah, 9
 		mov		dx, s$Hello1
@@ -295,7 +339,7 @@ Install:
 		mov		bx, [.wOffsetBreakpoint]
 		mov		[UMBrequest.wOffsetFreeUMBs], bx
 
-		; Time to interpret the command line in CONFIG.SYS
+		; Time to parse the command line in CONFIG.SYS
 		lds		si, [fpRequestHeader]
 		lds		si, [si+fpRH_CommandLine]
 
@@ -303,20 +347,20 @@ Install:
 
 		mov		cx, 4					; Hex digit count in CH = 0, Shift count in CL = 4
 		xor		ah, ah					; WORD parameter count in AH
-		; First scan until we find a whitespace (tab or space) to find the start of parameters
-.SearchForWhiteSpace:
+		; Scan for the end of the path+filename
+.SearchForEndOfPathAndFilename:
 		lodsb
-		cmp		al, CR
-		je		SHORT .EndOfLineEncountered
-		cmp		al, SPACE
-		je		SHORT .SearchForParameter
-		cmp		al, TAB
-		jne		SHORT .SearchForWhiteSpace
+		test	al, al					; MS-DOS 2.11 ends the path+filename with a NULL
+		jz		SHORT .SearchForParameter
+		cmp		al, SPACE				; MS-DOS 3.00 and 6.22 ends the path+filename with a SPACE
+		jne		SHORT .SearchForEndOfPathAndFilename
 
-		; We've found the first whitespace which means we've reached the end of the path+filename
+		; We've found the end of the path+filename
 .SearchForParameter:
 		lodsb
 		cmp		al, CR
+		je		SHORT .EndOfLineEncountered
+		cmp		al, LF					; This is only needed for the case where there are no parameters (DOS overwrites the CR with a SPACE or NULL)
 		je		SHORT .EndOfLineEncountered
 		cmp		al, SPACE
 		je		SHORT .SearchForParameter
@@ -324,13 +368,13 @@ Install:
 		je		SHORT .SearchForParameter
 
 		; We have the first byte of a parameter
-		dec		si
+		SKIP1B	dl
 .NextHexDigit:
 		lodsb
 		inc		ch
 		cmp		al, '9'
 		jbe		SHORT .NotAtoF
-		and		al, ~32
+		; Note that DOS converts everything to upper case so we don't have to!
 		cmp		al, 'F'
 		ja		SHORT .ParameterError
 		cmp		al, 'A'
@@ -345,17 +389,40 @@ Install:
 		jnz		SHORT .NextHexDigit
 
 		; We have a complete WORD in DX
+		cmp		dh, 0A0h
+		jb		SHORT .ParameterError	; Segment address given is below UMA
 		inc		ah						; Increment WORD count
 		sahf							; WORD count Odd or Even?
 		jc		SHORT .FirstWordOfParameter
 		sub		dx, [cs:bx-2]			; Convert end of range to length
 		jbe		SHORT .ParameterError	; End of range below or equal to start of range
+
+%ifdef XTMAX
+		; Program the range
+		push	ax
+		push	bx
+		mov		ax, [cs:bx-2]
+		mov		bx, dx
+		mov		dx, 26Dh				; UMB base register
+		out		dx, ax
+		add		dl, dh					; UMB pages count register
+		xchg	bx, ax
+		mov		cl, 7
+		pop		bx
+		shr		ax, cl					; Paragraphs to 2K pages
+		out		dx, al
+		shl		ax, cl					; 2K pages back to paragraphs (Clears CF)
+		pop		dx
+		jz		SHORT .ParameterError	; Range was smaller than 2KB
+		xchg	dx, ax
+		mov		cl, 4
+%endif ; XTMAX
+
 .FirstWordOfParameter:
 		mov		[cs:bx], dx
 		inc		bx
 		inc		bx
 		lodsb
-		sahf
 		jc		SHORT .CheckIfDash
 		cmp		al, CR
 		je		SHORT .EndOfLineEncountered
@@ -373,7 +440,7 @@ Install:
 
 		mov		dx, s$ParamError
 		xor		ax, ax
-		jmp		SHORT .StoreBreakPointer
+		jmp		.StoreBreakPointer
 
 .EndOfLineEncountered:
 		test	ah, ah
@@ -382,7 +449,6 @@ Install:
 		pop		ds						; DS = CS
 
 		mov		WORD [bx], 0			; End of Free UMBs block marker
-		inc		bx
 		inc		bx
 		mov		[.wOffsetBreakpoint], bx
 
@@ -396,29 +462,65 @@ Install:
 		jz		SHORT .AllBlocksInitialized
 		xchg	bx, ax					; Save address in BX
 		lodsw							; Block size in paragraphs to AX
-		xor		dx, dx
+		cwd
 		xchg	dx, ax					; DX = Paragraph count, AX = Zero
-		xor		di, di					; Point ES:DI to start of UMB
+		mov		di, ax					; Point ES:DI to start of UMB
 .InitNextSegment:
+		dec		ax						; AX = 0FFFFh (or -1)
 		mov		es, bx
 		cmp		dh, 10h					; Block larger than or equal to a full segment?
 		jb		SHORT .LessThan64KB
+.VerifyAgain1:
 		mov		cx, 8000h				; We need to write (at least) a full 64 KB segment
+		rep		stosw
+		mov		ch, 80h
+		repe	scasw					; Did what we just wrote stick?
+		jne		SHORT .BadUMB			; No, either it's bad RAM (hardware problem) or ROM or just nothing (user error)
+		inc		ax						; Yes, increment AX to zero and try again in case it was just a coincidental match
+		jz		SHORT .VerifyAgain1
+		dec		ax
 		add		bh, 10h					; Add 64 KB to the segment address for the next iteration (if any)
 		sub		dh, 10h					; Subtract 64 KB from the paragraph count
-		rep		stosw
 		jmp		SHORT .InitNextSegment
 .LessThan64KB:
 		mov		cl, 3
 		shl		dx, cl					; Paragraphs to WORDs
+		mov		bx, dx
+		shl		bx, 1					; WORDs to BYTEs
+.VerifyAgain2:
 		mov		cx, dx					; WORD count to CX
 		rep		stosw
+		mov		cx, dx
+		sub		di, bx
+		repe	scasw
+		jne		SHORT .BadUMB
+		sub		di, bx
+		inc		ax
+		jz		SHORT .VerifyAgain2
 		jmp		SHORT .InitNextBlock
+
+.BadUMB:
+		mov		ax, es
+		mov		bx, s$BadSegment
+		mov		cl, 4
+.NextNibble:
+		push	ax
+		and		al, 0Fh
+		cmp		al, 10
+		sbb		al, 69h
+		das
+		mov		[bx], al
+		pop		ax
+		dec		bx
+		shr		ax, cl
+		jnz		SHORT .NextNibble
+		mov		dx, s$BadUMB
+		jmp		SHORT .StoreBreakPointer
 
 .AllBlocksInitialized:
 		pop		di
 
-		; Get handler for Interrupt 2Fh and store it
+		; Get the handler for Interrupt 2Fh and store it
 		mov		ax, 352Fh
 		int		21h
 		mov		[fpOldInterrupt2FhHandler], bx
@@ -441,9 +543,8 @@ Install:
 		mov		[es:bx+fpRH_BreakAddress+2], cs
 
 		mov		ah, 9
-		int		21h						; Print Installed/NotInstalled/ParamError
+		int		21h						; Print Installed/NotInstalled/ParamError/BadUMB
 
-		xor		ax, ax					; No errors
 		pop		si
 		pop		ds
 		pop		dx
@@ -451,15 +552,16 @@ Install:
 		jmp		Return
 
 
-s$Hello1		db	0Dh,0Ah,'ีออออออออออออออต   Use!UMBs   ฦอออออออออออออธ',0Dh,0Ah
-s$Empty			db			'ณ                                           ณ',0Dh,0Ah,'$'
-s$Hello2		db			'ณ        Upper Memory Block - Manager       ณ',0Dh,0Ah,'$'
-s$Hello3		db			'ณ   Works on any PC/XT/AT, either with or   ณ',0Dh,0Ah
-				db			'ณ    without Extended or Expanded Memory!   ณ',0Dh,0Ah,'$'
-s$XMMfound		db			'ณ     * found extended memory manager *     ณ',0Dh,0Ah,'$'
-s$Author		db			'ณ        Author: Marco van Zwetselaar       ณ',0Dh,0Ah
-				db			'ณ   dedicated it to the Public Domain 1991  ณ',0Dh,0Ah,'$'
-s$Installed		db			'ิออต Version 2.2 ฦออออออออออต Installed! ฦออพ',0Dh,0Ah,0Ah,'$'
-s$NotInstalled	db			'ิอต Not Installed!  UMBs Managed Already! ฦอพ',0Dh,0Ah,0Ah,'$'
-s$ParamError	db			'ิอต Not Installed!  Invalid Command Line! ฦอพ',0Dh,0Ah,0Ah,'$'
-
+s$Hello1		db	  CR,LF,'ีออออออออออออออต   Use!UMBs   ฦอออออออออออออธ',CR,LF
+s$Empty			db			'ณ                                           ณ',CR,LF,'$'
+s$Hello2		db			'ณ        Upper Memory Block - Manager       ณ',CR,LF,'$'
+s$Hello3		db			'ณ   Works on any PC/XT/AT, either with or   ณ',CR,LF
+				db			'ณ    without Extended or Expanded Memory!   ณ',CR,LF,'$'
+s$XMMfound		db			'ณ     * found extended memory manager *     ณ',CR,LF,'$'
+s$Author		db			'ณ        Author: Marco van Zwetselaar       ณ',CR,LF
+				db			'ณ   dedicated it to the Public Domain 1991  ณ',CR,LF,'$'
+s$Installed		db			'ิออต Version 2.3 ฦออออออออออต Installed! ฦออพ',CR,LF,LF,'$'
+s$NotInstalled	db			'ิอต Not Installed!  UMBs Managed Already! ฦอพ',CR,LF,LF,'$'
+s$ParamError	db			'ิอต Not Installed!  Invalid Command Line! ฦอพ',CR,LF,LF,'$'
+s$BadUMB		db			'ิอต Not Installed!  Bad UMB @ seg: 0000h! ฦอพ',CR,LF,LF,'$'
+s$BadSegment equ s$BadUMB+38

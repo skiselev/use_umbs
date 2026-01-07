@@ -19,6 +19,13 @@ The USE!UMBS.SYS provides interface to manage Upper Memory Blocks and make them 
 
 ## Changes
 
+* v2.3
+  * Segment addresses given as parameters are now verified to be in the UMA.
+  * UMBs are now verified to be writable (ROM/bad RAM/no RAM will generate an error).
+  * Added support for the XTMax (based on work by Matthieu Bucchianeri).
+  * Minor size optimizations.
+
+
 * v2.2
   * UMBs are now initialized to avoid parity errors.
   * Minor size optimizations.
