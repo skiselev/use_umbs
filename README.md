@@ -19,6 +19,10 @@ The USE!UMBS.SYS provides interface to manage Upper Memory Blocks and make them 
 
 ## Changes
 
+* v2.5
+  * Fixed a bug where finding a bad UMB would lead to registers and the stack not being properly restored on exit.
+  * Minor size optimizations.
+
 * v2.4
   * Fixed a bug where half of the WORD terminating the list of UMB ranges could end up after the driver breakpoint.
 

@@ -3,11 +3,16 @@
 ;
 ; This is a rewrite of Marco van Zwetselaar's USE!UMBS.SYS v2.0 from 1991.
 ;
-; Changes in this version (v2.4);
+; Changes in this version (v2.5);
+; * Fixed a bug where finding a bad UMB would lead to registers
+;   and the stack not being properly restored on exit.
+; * Minor size optimizations.
+;
+; Changes in the previous version (v2.4);
 ; * Fixed a bug where half of the WORD terminating the list
 ;   of UMB ranges could end up after the driver breakpoint.
 ;
-; Changes in the previous version (v2.3);
+; Changes in the version before that (v2.3);
 ; * Segment addresses given as parameters are now verified to be in the UMA.
 ; * UMBs are now verified to be writable (ROM/bad RAM/no RAM will generate an error).
 ; * Added support for the XTMax (based on work by Matthieu Bucchianeri).
@@ -233,7 +238,7 @@ UMBrequest:
 		cmp		cx, ax					; Large enough to fulfill request?
 		ja		SHORT .Search			; Jump if not
 
-		mov		WORD [cs:si-4], 0FFFFh	; Mark as given away
+		or		WORD [cs:si-4], 0FFFFh	; Mark as given away
 		mov		dx, 1					; Return Success in AX and size of block in DX
 		xchg	dx, ax
 		pop		cx						; Remove BX from stack
@@ -241,10 +246,9 @@ UMBrequest:
 
 .NoBlockFound:
 		pop		bx						; Restore BX
-		mov		bl, 0B0h				; Return "Smaller UMB available" in BL
-		test	dx, dx					; Size of largest block found = 0?
-		jnz		SHORT .Return			; If not, assumption was correct
-		inc		bx						; Yes, return "No UMBs available" instead
+		mov		bl, 0B1h				; Return "No UMBs available" in BL
+		cmp		ax, dx					; Size of largest block found = 0?
+		sbb		bx, ax					; If not, return "Smaller UMB available" instead
 
 .Return:
 		pop		cx
@@ -278,6 +282,7 @@ Install:
 		push	dx
 		push	ds
 		push	si
+		push	di
 
 		push	cs
 		pop		ds
@@ -459,8 +464,6 @@ Install:
 
 		; We need to initialize the UMBs by writing to every address to avoid parity errors later when reading
 		mov		si, [UMBrequest.wOffsetFreeUMBs]
-		push	di
-
 .InitNextBlock:
 		lodsw							; Segment address of UMB to AX
 		test	ax, ax
@@ -523,8 +526,6 @@ Install:
 		jmp		SHORT .StoreBreakPointer
 
 .AllBlocksInitialized:
-		pop		di
-
 		; Get the handler for Interrupt 2Fh and store it
 		mov		ax, 352Fh
 		int		21h
@@ -550,6 +551,7 @@ Install:
 		mov		ah, 9
 		int		21h						; Print Installed/NotInstalled/ParamError/BadUMB
 
+		pop		di
 		pop		si
 		pop		ds
 		pop		dx
@@ -565,7 +567,7 @@ s$Hello3		db			'³   Works on any PC/XT/AT, either with or   ³',CR,LF
 s$XMMfound		db			'³     * found extended memory manager *     ³',CR,LF,'$'
 s$Author		db			'³        Author: Marco van Zwetselaar       ³',CR,LF
 				db			'³   dedicated it to the Public Domain 1991  ³',CR,LF,'$'
-s$Installed		db			'ÔÍÍµ Version 2.4 ÆÍÍÍÍÍÍÍÍÍÍµ Installed! ÆÍÍ¾',CR,LF,LF,'$'
+s$Installed		db			'ÔÍÍµ Version 2.5 ÆÍÍÍÍÍÍÍÍÍÍµ Installed! ÆÍÍ¾',CR,LF,LF,'$'
 s$NotInstalled	db			'ÔÍµ Not Installed!  UMBs Managed Already! ÆÍ¾',CR,LF,LF,'$'
 s$ParamError	db			'ÔÍµ Not Installed!  Invalid Command Line! ÆÍ¾',CR,LF,LF,'$'
 s$BadUMB		db			'ÔÍµ Not Installed!  Bad UMB @ seg: 0000h! ÆÍ¾',CR,LF,LF,'$'
