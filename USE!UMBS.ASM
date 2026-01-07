@@ -3,13 +3,17 @@
 ;
 ; This is a rewrite of Marco van Zwetselaar's USE!UMBS.SYS v2.0 from 1991.
 ;
-; Changes in this version (v2.3);
+; Changes in this version (v2.4);
+; * Fixed a bug where half of the WORD terminating the list
+;   of UMB ranges could end up after the driver breakpoint.
+;
+; Changes in the previous version (v2.3);
 ; * Segment addresses given as parameters are now verified to be in the UMA.
 ; * UMBs are now verified to be writable (ROM/bad RAM/no RAM will generate an error).
 ; * Added support for the XTMax (based on work by Matthieu Bucchianeri).
 ; * Minor size optimizations.
 ;
-; Changes in the previous version (v2.2);
+; Changes in the version before that (v2.2);
 ; * UMBs are now initialized to avoid parity errors.
 ; * Minor size optimizations.
 ;
@@ -450,6 +454,7 @@ Install:
 
 		mov		WORD [bx], 0			; End of Free UMBs block marker
 		inc		bx
+		inc		bx
 		mov		[.wOffsetBreakpoint], bx
 
 		; We need to initialize the UMBs by writing to every address to avoid parity errors later when reading
@@ -560,7 +565,7 @@ s$Hello3		db			'ณ   Works on any PC/XT/AT, either with or   ณ',CR,LF
 s$XMMfound		db			'ณ     * found extended memory manager *     ณ',CR,LF,'$'
 s$Author		db			'ณ        Author: Marco van Zwetselaar       ณ',CR,LF
 				db			'ณ   dedicated it to the Public Domain 1991  ณ',CR,LF,'$'
-s$Installed		db			'ิออต Version 2.3 ฦออออออออออต Installed! ฦออพ',CR,LF,LF,'$'
+s$Installed		db			'ิออต Version 2.4 ฦออออออออออต Installed! ฦออพ',CR,LF,LF,'$'
 s$NotInstalled	db			'ิอต Not Installed!  UMBs Managed Already! ฦอพ',CR,LF,LF,'$'
 s$ParamError	db			'ิอต Not Installed!  Invalid Command Line! ฦอพ',CR,LF,LF,'$'
 s$BadUMB		db			'ิอต Not Installed!  Bad UMB @ seg: 0000h! ฦอพ',CR,LF,LF,'$'

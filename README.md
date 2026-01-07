@@ -19,17 +19,18 @@ The USE!UMBS.SYS provides interface to manage Upper Memory Blocks and make them 
 
 ## Changes
 
+* v2.4
+  * Fixed a bug where half of the WORD terminating the list of UMB ranges could end up after the driver breakpoint.
+
 * v2.3
   * Segment addresses given as parameters are now verified to be in the UMA.
   * UMBs are now verified to be writable (ROM/bad RAM/no RAM will generate an error).
   * Added support for the XTMax (based on work by Matthieu Bucchianeri).
   * Minor size optimizations.
 
-
 * v2.2
   * UMBs are now initialized to avoid parity errors.
   * Minor size optimizations.
-
 
 * v2.1 - Initial version from Krister Nordvall
   * Added support for specifying the address range for the UMB, e.g., `DEVICE=USE!UMBS.SYS D000-EFFF`
