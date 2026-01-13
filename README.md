@@ -21,7 +21,7 @@ The USE!UMBS.SYS provides interface to manage Upper Memory Blocks and make them 
 
 Below is an example of a **CONFIG.SYS** file that loads USE!UMBS.SYS and loads the DOS into UMBs.
 Note that the address range argument specified after **USE!UMBS.SYS** should match the UMBs address range available on your system (D000-EFFF in this example).
-In addition to USE!UMBS, it also uses [DOSMAX.EXE (or DOSM86.EXE)](dosmax17.zip) that moves most of the DOS code into UMBs.
+In addition to USE!UMBS, it also uses [DOSMAX.EXE](DOSMAX21.ZIP) that moves most of the DOS code into UMBs.
 Use **DEVICEHIGH** directive to load device drivers into UMBs:
 
 ```
